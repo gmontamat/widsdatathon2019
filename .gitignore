@@ -104,9 +104,11 @@ venv.bak/
 .mypy_cache/
 
 # Custom ignored files
+jupyter_notebook_config.py
 .idea/
 *.csv
 *.zip
 *.jpg
 *.jpeg
 *.h5
+*.pkl
