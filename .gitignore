@@ -109,3 +109,4 @@ venv.bak/
 *.zip
 *.jpg
 *.jpeg
+*.h5
