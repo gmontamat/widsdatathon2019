@@ -6,3 +6,4 @@ Code for the Kaggle competition "WiDS Datathon 2019"
 
 * https://www.widsconference.org/datathon.html
 * https://www.kaggle.com/c/widsdatathon2019
+* For image augmentation: https://www.kaggle.com/tomahim/image-manipulation-augmentation-with-skimage
