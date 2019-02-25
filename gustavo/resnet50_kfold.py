@@ -76,7 +76,7 @@ class roc_callback(Callback):
     doesn't improve.
     """
 
-    def __init__(self, training_data, validation_data, patience=2, baseline=0.9975):
+    def __init__(self, training_data, validation_data, patience=3, baseline=0.998):
         super(Callback, self).__init__()
         self.best_roc_val = 0.
         self.consecutive_worse = 0
@@ -108,10 +108,16 @@ class roc_callback(Callback):
             self.model.save_weights('best.h5')
         else:
             self.consecutive_worse += 1
-            if self.consecutive_worse >= self.patience and self.best_roc_val > self.baseline:
-                print("Epoch %05d: early stopping." % epoch)
-                self.model.stop_training = True
-                self.model.load_weights('best.h5')
+            if self.consecutive_worse >= self.patience:
+                if self.best_roc_val > self.baseline:
+                    print("Epoch %05d: early stopping." % epoch)
+                    self.model.stop_training = True
+                    self.model.load_weights('best.h5')
+                else:
+                    print("Ran out of patience, resetting weights...")
+                    self.model.load_weights('original.h5')
+                    self.best_roc_val = 0.
+                    self.consecutive_worse = 0
         return
 
     def on_batch_begin(self, batch, logs={}):
@@ -177,6 +183,7 @@ for index_90, index_70, index_50 in zip(
     val_responses = val_responses[permutation, :]
     # Train model until validation ROC AUC can't be improved
     model = resnet50()
+    model.save_weights('original.h5')
     model.compile(
         loss='binary_crossentropy', optimizer=SGD(lr=1e-4, momentum=0.9),
         metrics=['accuracy']
