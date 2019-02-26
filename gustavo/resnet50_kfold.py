@@ -145,7 +145,8 @@ kfold = 5
 skf = StratifiedKFold(n_splits=kfold)
 
 k = 0
-for index_90, index_70, index_50, index_aug in zip(
+# for index_90, index_70, index_50, index_aug in zip(
+for index_90, index_70, index_50 in zip(
         skf.split(train_images_90, train_responses_90.squeeze()),
         skf.split(train_images_70, train_responses_70.squeeze()),
         skf.split(train_images_50, train_responses_50.squeeze())):
