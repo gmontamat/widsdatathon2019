@@ -4,13 +4,10 @@ import os
 import pandas as pd
 import pickle
 
-
 data_path = os.path.join(os.getcwd(), '..', 'input')
-
 
 height = 256
 width = 256
-
 
 with open(os.path.join(data_path, 'train_images_256x256.pkl'), 'rb') as fin:
     train_images = pickle.load(fin)
@@ -25,7 +22,6 @@ with open(os.path.join(data_path, 'augmented_responses.pkl'), 'rb') as fin:
 with open(os.path.join(data_path, 'augmented_scores.pkl'), 'rb') as fin:
     augmented_scores = pickle.load(fin)
 
-
 train_images_90 = train_images[train_scores.squeeze() > .9, :, :, :]
 train_responses_90 = train_responses[train_scores.squeeze() > .9, :]
 train_images_70 = train_images[(train_scores.squeeze() < .9) & (train_scores.squeeze() > .7), :, :, :]
@@ -33,11 +29,9 @@ train_responses_70 = train_responses[(train_scores.squeeze() < .9) & (train_scor
 train_images_50 = train_images[train_scores.squeeze() < .7, :, :, :]
 train_responses_50 = train_responses[train_scores.squeeze() < .7, :]
 
-
 del train_images
 del train_responses
 del train_scores
-
 
 augmented_images_90 = augmented_images[augmented_scores.squeeze() > .9, :, :, :]
 augmented_responses_90 = augmented_responses[augmented_scores.squeeze() > .9, :]
@@ -46,11 +40,9 @@ augmented_responses_70 = augmented_responses[(augmented_scores.squeeze() < .9) &
 augmented_images_50 = augmented_images[augmented_scores.squeeze() < .7, :, :, :]
 augmented_responses_50 = augmented_responses[augmented_scores.squeeze() < .7, :]
 
-
 del augmented_images
 del augmented_responses
 del augmented_scores
-
 
 train_images_90 = train_images_90 * 2. / 255. - 1.
 train_images_70 = train_images_70 * 2. / 255. - 1.
@@ -59,10 +51,8 @@ augmented_images_90 = augmented_images_90 * 2. / 255. - 1.
 augmented_images_70 = augmented_images_70 * 2. / 255. - 1.
 augmented_images_50 = augmented_images_50 * 2. / 255. - 1.
 
-
-from keras import backend as K
 from keras.applications.resnet50 import ResNet50
-from keras.layers import Dropout, Flatten, Dense
+from keras.layers import Dense  # , Dropout, Flatten
 from keras.models import Model
 from keras.optimizers import SGD
 from keras.callbacks import Callback
@@ -76,7 +66,7 @@ class roc_callback(Callback):
     doesn't improve.
     """
 
-    def __init__(self, training_data, validation_data, patience=3, baseline=0.998):
+    def __init__(self, training_data, validation_data, patience=5, baseline=0.999):
         super(Callback, self).__init__()
         self.best_roc_val = 0.
         self.consecutive_worse = 0
@@ -110,7 +100,7 @@ class roc_callback(Callback):
             self.consecutive_worse += 1
             if self.consecutive_worse >= self.patience:
                 if self.best_roc_val > self.baseline:
-                    print("Epoch %05d: early stopping." % epoch)
+                    print("Epoch {}: early stopping.".format(epoch + 1))
                     self.model.stop_training = True
                     self.model.load_weights('best.h5')
                 else:
@@ -118,6 +108,13 @@ class roc_callback(Callback):
                     self.model.load_weights('original.h5')
                     self.best_roc_val = 0.
                     self.consecutive_worse = 0
+                    # Relax baseline, model isn't complex enough
+                    if self.baseline > .997:
+                        self.baseline = self.baseline - .001
+                    elif epoch > 460:
+                        self.baseline = .996
+                    elif epoch > 400:
+                        self.baseline = .9965
         return
 
     def on_batch_begin(self, batch, logs={}):
@@ -136,34 +133,38 @@ def resnet50():
     x = Dense(1, activation='sigmoid')(last)
     return Model(inputs=[resnet.input], outputs=[x])
 
+
 # model = resnet50()
 # model.summary()
 
 
 from sklearn.model_selection import StratifiedKFold
 
-
-skf = StratifiedKFold(n_splits=5)
-
+kfold = 5
+skf = StratifiedKFold(n_splits=kfold)
 
 k = 0
-for index_90, index_70, index_50 in zip(
-    skf.split(train_images_90, train_responses_90.squeeze()),
-    skf.split(train_images_70, train_responses_70.squeeze()),
-    skf.split(train_images_50, train_responses_50.squeeze())):
+for index_90, index_70, index_50, index_aug in zip(
+        skf.split(train_images_90, train_responses_90.squeeze()),
+        skf.split(train_images_70, train_responses_70.squeeze()),
+        skf.split(train_images_50, train_responses_50.squeeze()),
+        skf.split(augmented_images_90, augmented_responses_90.squeeze())):
     k += 1
     train_index_90, test_index_90 = index_90
     train_index_70, test_index_70 = index_70
     train_index_50, test_index_50 = index_50
+    train_index_aug, test_index_aug = index_aug
     images = np.concatenate([
         train_images_90[train_index_90, :, :, :],
         train_images_70[train_index_70, :, :, :],
-        train_images_50[train_index_50, :, :, :]
+        train_images_50[train_index_50, :, :, :],
+        augmented_images_90[train_index_aug, :, :, :]
     ], axis=0)
     responses = np.concatenate([
         train_responses_90[train_index_90, :],
         train_responses_70[train_index_70, :],
-        train_responses_50[train_index_50, :]
+        train_responses_50[train_index_50, :],
+        augmented_responses_90[train_index_aug, :]
     ], axis=0)
     permutation = np.random.permutation(images.shape[0])
     images = images[permutation, :, :, :]
@@ -171,12 +172,14 @@ for index_90, index_70, index_50 in zip(
     val_images = np.concatenate([
         train_images_90[test_index_90, :, :, :],
         train_images_70[test_index_70, :, :, :],
-        train_images_50[test_index_50, :, :, :]
+        train_images_50[test_index_50, :, :, :],
+        augmented_images_90[test_index_aug, :, :, :]
     ], axis=0)
     val_responses = np.concatenate([
         train_responses_90[test_index_90, :],
         train_responses_70[test_index_70, :],
-        train_responses_50[test_index_50, :]
+        train_responses_50[test_index_50, :],
+        augmented_responses_90[test_index_aug, :]
     ], axis=0)
     permutation = np.random.permutation(val_images.shape[0])
     val_images = val_images[permutation, :, :, :]
@@ -189,10 +192,55 @@ for index_90, index_70, index_50 in zip(
         metrics=['accuracy']
     )
     model.fit(
-        images, responses, batch_size=16, epochs=100,
+        images, responses, batch_size=16, epochs=500,
         validation_data=(val_images, val_responses),
         callbacks=[
             roc_callback(training_data=(images, responses), validation_data=(val_images, val_responses))
         ]
     )
     model.save('resnet50_kfold{}.h5'.format(k))
+
+
+def img_as_array(image_id, size=None, image_set='train_images'):
+    image_path = os.path.join(data_path, image_set, image_id)
+    img = cv2.imread(str(image_path))
+    if size is None:
+        return img
+    return cv2.resize(img, size)
+
+
+test_dir = 'leaderboard_test_data'
+holdout_dir = 'leaderboard_holdout_data'
+
+test_images = []
+test_ids = []
+for image_id in os.listdir(os.path.join(data_path, test_dir)):
+    img = img_as_array(image_id, image_set=test_dir)
+    test_images.append(img.reshape(1, height, width, 3))
+    test_ids.append(image_id)
+for image_id in os.listdir(os.path.join(data_path, holdout_dir)):
+    img = img_as_array(image_id, image_set=holdout_dir)
+    test_images.append(img.reshape(1, height, width, 3))
+    test_ids.append(image_id)
+test_images = np.concatenate(test_images, axis=0)
+
+# test_images = test_images / 255.
+test_images = test_images * 2. / 255. - 1.
+
+from keras.models import load_model
+
+fold_predictions = []
+for i in range(1, kfold + 1):
+    model_name = 'resnet50_kfold{}.h5'.format(i)
+    model = load_model(model_name)
+    predictions = model.predict(test_images)
+    predictions = predictions.squeeze().tolist()
+    fold_predictions.append(predictions)
+
+data_dict = {'has_oilpalm{}'.format(i + 1): fold_predictions[i] for i in range(kfold)}
+data_dict['image_id'] = test_ids
+submission = pd.DataFrame(data_dict).sort_values('image_id')
+submission['has_oilpalm'] = submission[['has_oilpalm{}'.format(i + 1) for i in range(kfold)]].mean(axis=1)
+submission = submission[['image_id', 'has_oilpalm']]
+
+submission.to_csv('submission.csv', index=False)
