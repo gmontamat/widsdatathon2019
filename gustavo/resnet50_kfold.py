@@ -52,7 +52,7 @@ augmented_images_70 = augmented_images_70 * 2. / 255. - 1.
 augmented_images_50 = augmented_images_50 * 2. / 255. - 1.
 
 from keras.applications.resnet50 import ResNet50
-from keras.layers import Dense  # , Dropout, Flatten
+from keras.layers import Dense, Dropout, Flatten, GlobalAveragePooling2D
 from keras.models import Model
 from keras.optimizers import SGD
 from keras.callbacks import Callback
@@ -125,12 +125,13 @@ class roc_callback(Callback):
 
 
 def resnet50():
-    resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling='avg')
+    resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling=None)
     last = resnet.output
+    x = GlobalAveragePooling2D()(last)
     # x = Flatten()(last)
     # x = Dropout(0.5)(last)
     # x = Dense(64, activation='relu')(x)
-    x = Dense(1, activation='sigmoid')(last)
+    x = Dense(1, activation='sigmoid')(x)
     return Model(inputs=[resnet.input], outputs=[x])
 
 
@@ -147,24 +148,24 @@ k = 0
 for index_90, index_70, index_50, index_aug in zip(
         skf.split(train_images_90, train_responses_90.squeeze()),
         skf.split(train_images_70, train_responses_70.squeeze()),
-        skf.split(train_images_50, train_responses_50.squeeze()),
-        skf.split(augmented_images_90, augmented_responses_90.squeeze())):
+        skf.split(train_images_50, train_responses_50.squeeze())):
+    # skf.split(augmented_images_90, augmented_responses_90.squeeze())):
     k += 1
     train_index_90, test_index_90 = index_90
     train_index_70, test_index_70 = index_70
     train_index_50, test_index_50 = index_50
-    train_index_aug, test_index_aug = index_aug
+    # train_index_aug, test_index_aug = index_aug
     images = np.concatenate([
         train_images_90[train_index_90, :, :, :],
         train_images_70[train_index_70, :, :, :],
         train_images_50[train_index_50, :, :, :],
-        augmented_images_90[train_index_aug, :, :, :]
+        # augmented_images_90[train_index_aug, :, :, :]
     ], axis=0)
     responses = np.concatenate([
         train_responses_90[train_index_90, :],
         train_responses_70[train_index_70, :],
         train_responses_50[train_index_50, :],
-        augmented_responses_90[train_index_aug, :]
+        # augmented_responses_90[train_index_aug, :]
     ], axis=0)
     permutation = np.random.permutation(images.shape[0])
     images = images[permutation, :, :, :]
@@ -173,13 +174,13 @@ for index_90, index_70, index_50, index_aug in zip(
         train_images_90[test_index_90, :, :, :],
         train_images_70[test_index_70, :, :, :],
         train_images_50[test_index_50, :, :, :],
-        augmented_images_90[test_index_aug, :, :, :]
+        # augmented_images_90[test_index_aug, :, :, :]
     ], axis=0)
     val_responses = np.concatenate([
         train_responses_90[test_index_90, :],
         train_responses_70[test_index_70, :],
         train_responses_50[test_index_50, :],
-        augmented_responses_90[test_index_aug, :]
+        # augmented_responses_90[test_index_aug, :]
     ], axis=0)
     permutation = np.random.permutation(val_images.shape[0])
     val_images = val_images[permutation, :, :, :]
@@ -187,10 +188,9 @@ for index_90, index_70, index_50, index_aug in zip(
     # Train model until validation ROC AUC can't be improved
     model = resnet50()
     model.save_weights('original.h5')
-    model.compile(
-        loss='binary_crossentropy', optimizer=SGD(lr=1e-4, momentum=0.9),
-        metrics=['accuracy']
-    )
+    sgd = SGD(lr=1e-3, decay=1e-6, momentum=0.9, nesterov=True)
+    # sgd = SGD(lr=1e-4, momentum=0.9)
+    model.compile(loss='binary_crossentropy', optimizer=sgd, metrics=['accuracy'])
     model.fit(
         images, responses, batch_size=16, epochs=500,
         validation_data=(val_images, val_responses),
