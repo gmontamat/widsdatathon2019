@@ -73,18 +73,19 @@ class RocCallback(Callback):
     doesn't improve.
     """
 
-    def __init__(self, training_data, validation_data, patience=5, baseline=0.999):
+    def __init__(self, training_data, validation_data):
         super(Callback, self).__init__()
-        self.best_roc_val = 0.
-        self.consecutive_worse = 0
-        self.patience = patience
-        self.baseline = baseline
         self.x = training_data[0]
         self.y = training_data[1]
         self.x_val = validation_data[0]
         self.y_val = validation_data[1]
 
     def on_train_begin(self, logs={}):
+        y_pred = self.model.predict(self.x)
+        roc = roc_auc_score(self.y, y_pred)
+        y_pred_val = self.model.predict(self.x_val)
+        roc_val = roc_auc_score(self.y_val, y_pred_val)
+        print('\rroc-auc: {} - roc-auc-val: {}'.format(round(roc, 6), round(roc_val, 6)), end=80 * ' ' + '\n')
         return
 
     def on_train_end(self, logs={}):
@@ -94,34 +95,6 @@ class RocCallback(Callback):
         return
 
     def on_epoch_end(self, epoch, logs={}):
-        y_pred = self.model.predict(self.x)
-        roc = roc_auc_score(self.y, y_pred)
-        y_pred_val = self.model.predict(self.x_val)
-        roc_val = roc_auc_score(self.y_val, y_pred_val)
-        print('\rroc-auc: {} - roc-auc-val: {}'.format(round(roc, 6), round(roc_val, 6)), end=80 * ' ' + '\n')
-        if roc_val > self.best_roc_val:
-            self.consecutive_worse = 0
-            self.best_roc_val = roc_val
-            self.model.save_weights('best.h5')
-        else:
-            self.consecutive_worse += 1
-            if self.consecutive_worse >= self.patience:
-                if self.best_roc_val > self.baseline:
-                    print("Epoch {}: early stopping.".format(epoch + 1))
-                    self.model.stop_training = True
-                    self.model.load_weights('best.h5')
-                else:
-                    print("Ran out of patience, resetting weights...")
-                    self.model.load_weights('original.h5')
-                    self.best_roc_val = 0.
-                    self.consecutive_worse = 0
-                    # Relax baseline, model isn't complex enough
-                    if self.baseline > .997:
-                        self.baseline = self.baseline - .001
-                    elif epoch > 460:
-                        self.baseline = .996
-                    elif epoch > 400:
-                        self.baseline = .9965
         return
 
     def on_batch_begin(self, batch, logs={}):
@@ -132,16 +105,25 @@ class RocCallback(Callback):
 
 
 def resnet50():
-    resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling='avg')
-    last = resnet.output
-    # x = Flatten()(last)
-    # x = GlobalAveragePooling2D()(last)
-    # x = Dropout(0.5)(last)
-    # x = Dense(64, activation='relu')(x)
-    x = Dense(1, activation='sigmoid')(last)
-    return Model(inputs=[resnet.input], outputs=[x])
+    resnet50_notop = ResNet50(include_top=False, weights='imagenet', input_tensor=None, input_shape=(width, height, 3))
+    output = resnet50_notop.get_layer(index=-1).output  # Shape: (8, 8, 2048)
+    output = Flatten(name='flatten')(output)
+    output = Dense(1, activation='sigmoid', name='predictions')(output)
+
+    # for layer in model.layers[:25]:
+    #     layer.trainable = False
+
+    return Model(resnet50_notop.input, output)
 
 
+# resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling='avg')
+# last = resnet.output
+# x = Flatten()(last)
+# x = GlobalAveragePooling2D()(last)
+# x = Dropout(0.5)(last)
+# x = Dense(64, activation='relu')(x)
+# x = Dense(1, activation='sigmoid')(last)
+# return Model(inputs=[resnet.input], outputs=[x])
 # model = resnet50()
 # model.summary()
 
@@ -192,12 +174,11 @@ for index_90, index_70, index_50 in zip(
     val_responses = val_responses[permutation, :]
     # Train model until validation ROC AUC can't be improved
     model = resnet50()
-    model.save_weights('original.h5')
     sgd = SGD(lr=1e-3, decay=1e-6, momentum=0.9, nesterov=True)
     # sgd = SGD(lr=1e-4, momentum=0.9)
     model.compile(loss='binary_crossentropy', optimizer=sgd, metrics=['accuracy'])
     model.fit(
-        images, responses, batch_size=16, epochs=500,
+        images, responses, batch_size=16, epochs=12,
         validation_data=(val_images, val_responses),
         callbacks=[
             RocCallback(training_data=(images, responses), validation_data=(val_images, val_responses))
