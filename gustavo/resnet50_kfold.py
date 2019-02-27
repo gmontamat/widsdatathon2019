@@ -5,9 +5,10 @@ import pandas as pd
 import pickle
 
 from keras.applications.resnet50 import ResNet50, preprocess_input
+# from keras.applications.vgg19 import VGG19
 from keras.callbacks import Callback
 from keras.layers import Dense, Dropout, Flatten, GlobalAveragePooling2D
-from keras.models import Model, load_model
+from keras.models import Model, load_model, Sequential
 from keras.optimizers import SGD
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold
@@ -52,18 +53,24 @@ del augmented_images
 del augmented_responses
 del augmented_scores
 
-# train_images_90 = train_images_90 * 2. / 255. - 1.
-# train_images_70 = train_images_70 * 2. / 255. - 1.
-# train_images_50 = train_images_50 * 2. / 255. - 1.
-# augmented_images_90 = augmented_images_90 * 2. / 255. - 1.
-# augmented_images_70 = augmented_images_70 * 2. / 255. - 1.
-# augmented_images_50 = augmented_images_50 * 2. / 255. - 1.
-train_images_90 = preprocess_input(train_images_90)
-train_images_70 = preprocess_input(train_images_70)
-train_images_50 = preprocess_input(train_images_50)
-augmented_images_90 = preprocess_input(augmented_images_90)
-augmented_images_70 = preprocess_input(augmented_images_70)
-augmented_images_50 = preprocess_input(augmented_images_50)
+train_images_90 = train_images_90 * 2. - 255.
+train_images_70 = train_images_70 * 2. - 255.
+train_images_50 = train_images_50 * 2. - 255.
+augmented_images_90 = augmented_images_90 * 2. - 255.
+augmented_images_70 = augmented_images_70 * 2. - 255.
+augmented_images_50 = augmented_images_50 * 2. - 255.
+# train_images_90 = preprocess_input(train_images_90)
+# train_images_70 = preprocess_input(train_images_70)
+# train_images_50 = preprocess_input(train_images_50)
+# augmented_images_90 = preprocess_input(augmented_images_90)
+# augmented_images_70 = preprocess_input(augmented_images_70)
+# augmented_images_50 = preprocess_input(augmented_images_50)
+# train_images_90 = np.subtract(train_images_90, [103.939, 116.779, 123.68], dtype=np.float32)
+# train_images_70 = np.subtract(train_images_70, [103.939, 116.779, 123.68], dtype=np.float32)
+# train_images_50 = np.subtract(train_images_50, [103.939, 116.779, 123.68], dtype=np.float32)
+# augmented_images_90 = np.subtract(augmented_images_90, [103.939, 116.779, 123.68], dtype=np.float32)
+# augmented_images_70 = np.subtract(augmented_images_70, [103.939, 116.779, 123.68], dtype=np.float32)
+# augmented_images_50 = np.subtract(augmented_images_50, [103.939, 116.779, 123.68], dtype=np.float32)
 
 
 class RocCallback(Callback):
@@ -103,27 +110,35 @@ class RocCallback(Callback):
     def on_batch_end(self, batch, logs={}):
         return
 
+# Save ResNet50 weights
+# resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling='max')
+# x = resnet.output
+# x = Dropout(0.75)(x)
+# x = Dense(1, activation='sigmoid')(x)
+# model = Model(inputs=[resnet.input], outputs=[x])
+# for layer in resnet.layers:
+#     layer.trainable = False
+# model.save_weights("resnet50.h5")
 
 def resnet50():
-    resnet50_notop = ResNet50(include_top=False, weights='imagenet', input_tensor=None, input_shape=(width, height, 3))
-    output = resnet50_notop.get_layer(index=-1).output  # Shape: (8, 8, 2048)
-    output = Flatten(name='flatten')(output)
-    output = Dense(1, activation='sigmoid', name='predictions')(output)
-
-    # for layer in model.layers[:25]:
+    resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling=None)
+    x = resnet.output
+    # for layer in resnet.layers:
     #     layer.trainable = False
+    # x = Flatten()(x)
+    x = GlobalAveragePooling2D()(x)
+    # x = Dropout(0.25)(x)
+    x = Dense(512, activation='relu')(x)
+    x = Dropout(0.5)(x)
+    x = Dense(256, activation='relu')(x)
+    x = Dropout(0.5)(x)
+    x = Dense(1, activation='sigmoid')(x)
+    model = Model(inputs=[resnet.input], outputs=[x])
+    # for layer in resnet.layers[:10]:
+    #     layer.trainable = False
+    # model.load_weights("resnet50.h5")
+    return model
 
-    return Model(resnet50_notop.input, output)
-
-
-# resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling='avg')
-# last = resnet.output
-# x = Flatten()(last)
-# x = GlobalAveragePooling2D()(last)
-# x = Dropout(0.5)(last)
-# x = Dense(64, activation='relu')(x)
-# x = Dense(1, activation='sigmoid')(last)
-# return Model(inputs=[resnet.input], outputs=[x])
 # model = resnet50()
 # model.summary()
 
@@ -131,28 +146,28 @@ kfold = 5
 skf = StratifiedKFold(n_splits=kfold)
 
 k = 0
-# for index_90, index_70, index_50, index_aug in zip(
-for index_90, index_70, index_50 in zip(
+# for index_90, index_70, index_50 in zip(
+for index_90, index_70, index_50, index_aug in zip(
         skf.split(train_images_90, train_responses_90.squeeze()),
         skf.split(train_images_70, train_responses_70.squeeze()),
-        skf.split(train_images_50, train_responses_50.squeeze())):
-    # skf.split(augmented_images_90, augmented_responses_90.squeeze())):
+        skf.split(train_images_50, train_responses_50.squeeze()),
+        skf.split(augmented_images_90, augmented_responses_90.squeeze())):
     k += 1
     train_index_90, test_index_90 = index_90
     train_index_70, test_index_70 = index_70
     train_index_50, test_index_50 = index_50
-    # train_index_aug, test_index_aug = index_aug
+    train_index_aug, test_index_aug = index_aug
     images = np.concatenate([
         train_images_90[train_index_90, :, :, :],
         train_images_70[train_index_70, :, :, :],
         train_images_50[train_index_50, :, :, :],
-        # augmented_images_90[train_index_aug, :, :, :]
+        augmented_images_90[train_index_aug, :, :, :]
     ], axis=0)
     responses = np.concatenate([
         train_responses_90[train_index_90, :],
         train_responses_70[train_index_70, :],
         train_responses_50[train_index_50, :],
-        # augmented_responses_90[train_index_aug, :]
+        augmented_responses_90[train_index_aug, :]
     ], axis=0)
     permutation = np.random.permutation(images.shape[0])
     images = images[permutation, :, :, :]
@@ -161,24 +176,24 @@ for index_90, index_70, index_50 in zip(
         train_images_90[test_index_90, :, :, :],
         train_images_70[test_index_70, :, :, :],
         train_images_50[test_index_50, :, :, :],
-        # augmented_images_90[test_index_aug, :, :, :]
+        augmented_images_90[test_index_aug, :, :, :]
     ], axis=0)
     val_responses = np.concatenate([
         train_responses_90[test_index_90, :],
         train_responses_70[test_index_70, :],
         train_responses_50[test_index_50, :],
-        # augmented_responses_90[test_index_aug, :]
+        augmented_responses_90[test_index_aug, :]
     ], axis=0)
     permutation = np.random.permutation(val_images.shape[0])
     val_images = val_images[permutation, :, :, :]
     val_responses = val_responses[permutation, :]
     # Train model until validation ROC AUC can't be improved
     model = resnet50()
-    sgd = SGD(lr=1e-3, decay=1e-6, momentum=0.9, nesterov=True)
+    sgd = SGD(lr=1e-3) # , momentum=0.9, nesterov=True)
     # sgd = SGD(lr=1e-4, momentum=0.9)
     model.compile(loss='binary_crossentropy', optimizer=sgd, metrics=['accuracy'])
     model.fit(
-        images, responses, batch_size=16, epochs=12,
+        images, responses, batch_size=16, epochs=20,
         validation_data=(val_images, val_responses),
         callbacks=[
             RocCallback(training_data=(images, responses), validation_data=(val_images, val_responses))
@@ -211,8 +226,9 @@ for image_id in os.listdir(os.path.join(data_path, holdout_dir)):
 test_images = np.concatenate(test_images, axis=0)
 
 # test_images = test_images / 255.
-# test_images = test_images * 2. / 255. - 1.
-test_images = preprocess_input(test_images)
+test_images = test_images * 2. - 255.
+# test_images = preprocess_input(test_images)
+# test_images = np.subtract(test_images, [103.939, 116.779, 123.68], dtype=np.float32)
 
 fold_predictions = []
 for i in range(1, kfold + 1):
