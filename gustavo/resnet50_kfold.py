@@ -4,6 +4,14 @@ import os
 import pandas as pd
 import pickle
 
+from keras.applications.resnet50 import ResNet50, preprocess_input
+from keras.callbacks import Callback
+from keras.layers import Dense, Dropout, Flatten, GlobalAveragePooling2D
+from keras.models import Model, load_model
+from keras.optimizers import SGD
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
+
 data_path = os.path.join(os.getcwd(), '..', 'input')
 
 height = 256
@@ -44,22 +52,21 @@ del augmented_images
 del augmented_responses
 del augmented_scores
 
-train_images_90 = train_images_90 * 2. / 255. - 1.
-train_images_70 = train_images_70 * 2. / 255. - 1.
-train_images_50 = train_images_50 * 2. / 255. - 1.
-augmented_images_90 = augmented_images_90 * 2. / 255. - 1.
-augmented_images_70 = augmented_images_70 * 2. / 255. - 1.
-augmented_images_50 = augmented_images_50 * 2. / 255. - 1.
+# train_images_90 = train_images_90 * 2. / 255. - 1.
+# train_images_70 = train_images_70 * 2. / 255. - 1.
+# train_images_50 = train_images_50 * 2. / 255. - 1.
+# augmented_images_90 = augmented_images_90 * 2. / 255. - 1.
+# augmented_images_70 = augmented_images_70 * 2. / 255. - 1.
+# augmented_images_50 = augmented_images_50 * 2. / 255. - 1.
+train_images_90 = preprocess_input(train_images_90)
+train_images_70 = preprocess_input(train_images_70)
+train_images_50 = preprocess_input(train_images_50)
+augmented_images_90 = preprocess_input(augmented_images_90)
+augmented_images_70 = preprocess_input(augmented_images_70)
+augmented_images_50 = preprocess_input(augmented_images_50)
 
-from keras.applications.resnet50 import ResNet50
-from keras.layers import Dense, Dropout, Flatten, GlobalAveragePooling2D
-from keras.models import Model
-from keras.optimizers import SGD
-from keras.callbacks import Callback
-from sklearn.metrics import roc_auc_score
 
-
-class roc_callback(Callback):
+class RocCallback(Callback):
     """
     Define a callback which returns train ROC AUC after
     each epoch and stops early when validation AUC
@@ -125,21 +132,18 @@ class roc_callback(Callback):
 
 
 def resnet50():
-    resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling=None)
+    resnet = ResNet50(include_top=False, weights='imagenet', input_shape=(height, width, 3), pooling='avg')
     last = resnet.output
-    x = GlobalAveragePooling2D()(last)
     # x = Flatten()(last)
+    # x = GlobalAveragePooling2D()(last)
     # x = Dropout(0.5)(last)
     # x = Dense(64, activation='relu')(x)
-    x = Dense(1, activation='sigmoid')(x)
+    x = Dense(1, activation='sigmoid')(last)
     return Model(inputs=[resnet.input], outputs=[x])
 
 
 # model = resnet50()
 # model.summary()
-
-
-from sklearn.model_selection import StratifiedKFold
 
 kfold = 5
 skf = StratifiedKFold(n_splits=kfold)
@@ -196,7 +200,7 @@ for index_90, index_70, index_50 in zip(
         images, responses, batch_size=16, epochs=500,
         validation_data=(val_images, val_responses),
         callbacks=[
-            roc_callback(training_data=(images, responses), validation_data=(val_images, val_responses))
+            RocCallback(training_data=(images, responses), validation_data=(val_images, val_responses))
         ]
     )
     model.save('resnet50_kfold{}.h5'.format(k))
@@ -226,9 +230,8 @@ for image_id in os.listdir(os.path.join(data_path, holdout_dir)):
 test_images = np.concatenate(test_images, axis=0)
 
 # test_images = test_images / 255.
-test_images = test_images * 2. / 255. - 1.
-
-from keras.models import load_model
+# test_images = test_images * 2. / 255. - 1.
+test_images = preprocess_input(test_images)
 
 fold_predictions = []
 for i in range(1, kfold + 1):
