@@ -81,14 +81,14 @@ class RocCallback(Callback):
         self.y_val = validation_data[1]
 
     def on_train_begin(self, logs={}):
+        return
+
+    def on_train_end(self, logs={}):
         y_pred = self.model.predict(self.x)
         roc = roc_auc_score(self.y, y_pred)
         y_pred_val = self.model.predict(self.x_val)
         roc_val = roc_auc_score(self.y_val, y_pred_val)
         print('\rroc-auc: {} - roc-auc-val: {}'.format(round(roc, 6), round(roc_val, 6)), end=80 * ' ' + '\n')
-        return
-
-    def on_train_end(self, logs={}):
         return
 
     def on_epoch_begin(self, epoch, logs={}):
